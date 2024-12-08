@@ -2,36 +2,36 @@
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
+import { Switch } from '@/components/ui/switch'
 import { Label } from '@/components/ui/label'
-import { Textarea } from '@/components/ui/textarea'
-import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
-import { toast } from '@/components/ui/use-toast'
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import { AlertCircle, Info } from 'lucide-react'
-import { Switch } from "@/components/ui/switch"
-import { LoadingSpinner } from "@/components/ui/loading-spinner"
+import { Trash, Plus, Pencil } from 'lucide-react'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
+import { useToast } from "@/components/ui/use-toast"
+import { Post } from '@/src/db/schema'
+import { LoadingSpinner } from '@/components/ui/loading-spinner'
 
-export default function CreatePostPage() {
+export default function ManagePostsPage() {
+  const [posts, setPosts] = useState<Post[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [isAuthenticated, setIsAuthenticated] = useState(false)
-  const [post, setPost] = useState({
-    title: '',
-    subtitle: '',
-    content: '',
-    tags: '',
-  })
-  const [isSubmitting, setIsSubmitting] = useState(false)
-  const [errors, setErrors] = useState<{
-    title?: string;
-    subtitle?: string;
-    content?: string;
-    tags?: string;
-    server?: string;
-  }>({})
-  const [isPublished, setIsPublished] = useState(false)
+  const [deletePostSlug, setDeletePostSlug] = useState<string | null>(null)
+
   const router = useRouter()
+  const { toast } = useToast()
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -44,195 +44,228 @@ export default function CreatePostPage() {
         });
         if (response.ok) {
           setIsAuthenticated(true);
+          fetchPosts(); // Call fetchPosts here after authentication is confirmed
         } else {
           router.push('/admin');
         }
       } catch (error) {
         console.error('Error checking authentication:', error);
         router.push('/admin');
-      } finally {
-        setIsLoading(false);
       }
     };
 
     checkAuth();
   }, [router]);
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-    const { name, value } = e.target
-    setPost(prev => ({ ...prev, [name]: value }))
-  }
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setIsSubmitting(true)
-    setErrors({})
-
-    // Client-side validation
-    const newErrors: typeof errors = {}
-    if (!post.title.trim()) newErrors.title = "Title is required"
-    if (!post.content.trim()) newErrors.content = "Content is required"
-    if (Object.keys(newErrors).length > 0) {
-      setErrors(newErrors)
-      setIsSubmitting(false)
-      return
+  useEffect(() => {
+    if (isAuthenticated) {
+      fetchPosts()
     }
+  }, [isAuthenticated])
+
+  const fetchPosts = async () => {
+    setIsLoading(true);
+    try {
+      const response = await fetch('/api/posts/all', {
+        credentials: 'include',
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setPosts(data);
+      } else {
+        throw new Error('Failed to fetch posts');
+      }
+    } catch (error) {
+      console.error('Error fetching posts:', error);
+      toast({
+        title: "Error",
+        description: "Failed to fetch posts. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleTogglePublish = async (slug: string, currentStatus: string) => {
+    const newStatus = currentStatus === 'published' ? 'draft' : 'published';
+    
+    // Optimistic update
+    setPosts(posts.map(post => 
+      post.slug === slug ? { ...post, status: newStatus, isLoading: true } : post
+    ));
 
     try {
-      const response = await fetch('/api/posts', {
-        method: 'POST',
+      const response = await fetch(`/api/posts/${slug}`, {
+        method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          title: post.title,
-          subtitle: post.subtitle,
-          content: post.content,
-          tags: post.tags.split(',').map(tag => tag.trim()),
-          status: isPublished ? 'published' : 'draft',
-        }),
+        body: JSON.stringify({ status: newStatus }),
         credentials: 'include',
-      })
+      });
+      
       if (response.ok) {
-        const data = await response.json()
+        const updatedPost = await response.json();
+        setPosts(posts.map(post => post.slug === slug ? { ...updatedPost, isLoading: false } : post));
         toast({
           title: "Success",
-          description: `Post ${isPublished ? 'published' : 'saved as draft'} successfully`,
-        })
-        router.push('/admin/dashboard/manage-posts')
+          description: `Post ${newStatus === 'published' ? 'published' : 'unpublished'} successfully`,
+        });
       } else {
-        const errorData = await response.json()
-        if (errorData.errors) {
-          setErrors(errorData.errors)
-        } else {
-          throw new Error(errorData.error || 'Failed to create post')
-        }
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to update post status');
       }
     } catch (error) {
-      console.error('Error creating post:', error)
-      setErrors({ server: error instanceof Error ? error.message : 'An unexpected error occurred' })
+      console.error('Error updating post status:', error);
+      // Revert the optimistic update
+      setPosts(posts.map(post => 
+        post.slug === slug ? { ...post, status: currentStatus, isLoading: false } : post
+      ));
       toast({
         title: "Error",
-        description: "Failed to create post. Please try again.",
+        description: error instanceof Error ? error.message : "Failed to update post status. Please try again.",
         variant: "destructive",
-      })
-    } finally {
-      setIsSubmitting(false)
+      });
+    }
+  };
+
+  const handleDelete = async () => {
+    if (deletePostSlug) {
+      try {
+        const response = await fetch(`/api/posts/${deletePostSlug}`, {
+          method: 'DELETE',
+          credentials: 'include',
+        })
+        if (response.ok) {
+          setPosts(posts.filter(post => post.slug !== deletePostSlug))
+          setDeletePostSlug(null)
+          toast({
+            title: "Success",
+            description: "Post deleted successfully",
+          })
+        } else {
+          throw new Error('Failed to delete post')
+        }
+      } catch (error) {
+        console.error('Error deleting post:', error)
+        toast({
+          title: "Error",
+          description: "Failed to delete post. Please try again.",
+          variant: "destructive",
+        })
+      }
     }
   }
 
-  if (isLoading) {
-    return (
-      <div className="container mx-auto py-10 flex justify-center items-center min-h-[calc(100vh-4rem)]">
-        <LoadingSpinner size="large" />
-      </div>
-    );
-  }
-
   if (!isAuthenticated) {
-    return null;
+    return null
   }
 
   return (
-    <div className="container mx-auto py-10">
-      <Card className="max-w-2xl mx-auto">
+    <div className="w-full px-4 sm:px-6 lg:px-8 py-8">
+      <Card>
         <CardHeader>
-          <CardTitle>Create New Post</CardTitle>
+          <CardTitle className="text-2xl font-bold">Manage Posts</CardTitle>
+          <CardDescription>
+            Toggle publish status or delete your blog posts
+          </CardDescription>
         </CardHeader>
-        <form onSubmit={handleSubmit}>
-          <CardContent className="space-y-4">
-            {errors.server && (
-              <Alert variant="destructive">
-                <AlertCircle className="h-4 w-4" />
-                <AlertTitle>Error</AlertTitle>
-                <AlertDescription>{errors.server}</AlertDescription>
-              </Alert>
-            )}
-            <div className="space-y-2">
-              <Label htmlFor="title">Title</Label>
-              <Input
-                id="title"
-                name="title"
-                value={post.title}
-                onChange={handleChange}
-                required
-              />
-              {errors.title && <p className="text-sm text-red-500">{errors.title}</p>}
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="subtitle">Subtitle</Label>
-              <Input
-                id="subtitle"
-                name="subtitle"
-                value={post.subtitle}
-                onChange={handleChange}
-              />
-              {errors.subtitle && <p className="text-sm text-red-500">{errors.subtitle}</p>}
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="content">Content</Label>
-              <Alert>
-                <Info className="h-4 w-4" />
-                <AlertTitle>Markdown Shortcuts</AlertTitle>
-                <AlertDescription>
-                  <ul className="list-disc pl-4">
-                    <li>Use '# ' for h1, '## ' for h2, '### ' for h3</li>
-                    <li>Use '* ' or '- ' for bullet points</li>
-                    <li>Use '1. ', '2. ', etc. for numbered lists</li>
-                    <li>Use '**bold**' for <strong>bold text</strong></li>
-                    <li>Use '*italic*' for <em>italic text</em></li>
-                    <li>Use '`code`' for <code>inline code</code></li>
-                    <li>Use '[link text](URL)' for links</li>
-                    <li>Use {'\'> \''} for blockquotes</li>
-                  </ul>
-                </AlertDescription>
-              </Alert>
-              <Textarea
-                id="content"
-                name="content"
-                value={post.content}
-                onChange={handleChange}
-                required
-                className="min-h-[200px]"
-              />
-              {errors.content && <p className="text-sm text-red-500">{errors.content}</p>}
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="tags">Tags (comma-separated)</Label>
-              <Input
-                id="tags"
-                name="tags"
-                value={post.tags}
-                onChange={handleChange}
-                placeholder="e.g. technology, programming, web development"
-              />
-              {errors.tags && <p className="text-sm text-red-500">{errors.tags}</p>}
-            </div>
-            <div className="flex items-center space-x-2">
-              <Switch
-                id="publish"
-                checked={isPublished}
-                onCheckedChange={setIsPublished}
-              />
-              <Label htmlFor="publish">Publish immediately</Label>
-            </div>
-          </CardContent>
-          <CardFooter>
-            <Button type="submit" disabled={isSubmitting}>
-              {isSubmitting ? (
-                <>
-                  <LoadingSpinner size="small" className="mr-2" />
-                  {isPublished ? 'Publishing...' : 'Saving Draft...'}
-                </>
-              ) : (
-                isPublished ? 'Publish Post' : 'Save Draft'
-              )}
+        <CardContent>
+          <div className="mb-6">
+            <Button asChild>
+              <Link href="/admin/dashboard/create-post">
+                <Plus className="mr-2 h-4 w-4" />
+                New Post
+              </Link>
             </Button>
-          </CardFooter>
-        </form>
+          </div>
+
+          {isLoading ? (
+            <div className="flex justify-center items-center py-8">
+              <LoadingSpinner size="large" />
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {posts.map((post) => (
+                <Card key={post.slug} className="overflow-hidden">
+                  <CardContent className="p-0">
+                    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between p-4 space-y-4 sm:space-y-0">
+                      <div className="flex items-center space-x-4">
+                        <Avatar>
+                          <AvatarImage src={post.authorAvatar || ''} />
+                          <AvatarFallback>{post.authorName.split(' ').map(n => n[0]).join('')}</AvatarFallback>
+                        </Avatar>
+                        <div>
+                          <h3 className="font-semibold">{post.title}</h3>
+                          {post.subtitle && (
+                            <p className="text-sm text-muted-foreground">{post.subtitle}</p>
+                          )}
+                          <div className="text-sm text-muted-foreground">
+                            {new Date(post.createdAt).toLocaleDateString()}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex items-center space-x-2 sm:space-x-4 w-full sm:w-auto justify-between sm:justify-end">
+                        <div className="flex items-center space-x-2">
+                          <Switch
+                            id={`publish-${post.slug}`}
+                            checked={post.status === 'published'}
+                            onCheckedChange={() => handleTogglePublish(post.slug, post.status)}
+                            disabled={post.isLoading}
+                          />
+                          {post.isLoading && (
+                            <LoadingSpinner size="small" />
+                          )}
+                          <Label
+                            htmlFor={`publish-${post.slug}`}
+                            className="text-sm cursor-pointer select-none"
+                          >
+                            {post.status === 'published' ? 'Published' : 'Draft'}
+                          </Label>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => router.push(`/admin/dashboard/edit-post/${post.slug}`)}
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => setDeletePostSlug(post.slug)}
+                          >
+                            <Trash className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
+        </CardContent>
       </Card>
+
+      <AlertDialog open={!!deletePostSlug} onOpenChange={() => setDeletePostSlug(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This action cannot be undone. This will permanently delete the post.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDelete}>Delete</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }
 
-                                    
+                                     
