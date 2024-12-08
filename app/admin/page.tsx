@@ -75,7 +75,7 @@ export default function AdminLoginPage() {
 
       if (response.ok) {
         console.log('Login successful:', data)
-        login(data.token) // Use the login function from AuthContext
+        login(data.user.email, data.token) // Use the login function from AuthContext
         router.push('/admin/dashboard')
       } else {
         console.error('Login failed:', data)
