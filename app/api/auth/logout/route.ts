@@ -1,7 +1,7 @@
-import { NextResponse } from 'next/server';
+import { NextResponse, NextRequest } from 'next/server';
 import { deleteSession } from '@/src/lib/session';
 
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
   const sessionId = request.cookies.get('sessionId')?.value;
 
   if (sessionId) {
