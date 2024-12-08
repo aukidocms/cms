@@ -183,7 +183,7 @@ export default function CreatePostPage() {
                     <li>Use '*italic*' for <em>italic text</em></li>
                     <li>Use '`code`' for <code>inline code</code></li>
                     <li>Use '[link text](URL)' for links</li>
-                    <li>Use '> ' for blockquotes</li>
+                    <li>Use {'\'> \''} for blockquotes</li>
                   </ul>
                 </AlertDescription>
               </Alert>
@@ -235,3 +235,4 @@ export default function CreatePostPage() {
   )
 }
 
+                          
