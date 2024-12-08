@@ -29,6 +29,7 @@ export default function ManagePostsPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [deletePostSlug, setDeletePostSlug] = useState<string | null>(null)
+  const [loadingPostSlug, setLoadingPostSlug] = useState<string | null>(null);
 
   const router = useRouter()
   const { toast } = useToast()
@@ -89,11 +90,8 @@ export default function ManagePostsPage() {
 
   const handleTogglePublish = async (slug: string, currentStatus: string) => {
     const newStatus = currentStatus === 'published' ? 'draft' : 'published';
-    
-    // Optimistic update
-    setPosts(posts.map(post => 
-      post.slug === slug ? { ...post, status: newStatus, isLoading: true } : post
-    ));
+     
+    setLoadingPostSlug(slug);
 
     try {
       const response = await fetch(`/api/posts/${slug}`, {
@@ -107,7 +105,7 @@ export default function ManagePostsPage() {
       
       if (response.ok) {
         const updatedPost = await response.json();
-        setPosts(posts.map(post => post.slug === slug ? { ...updatedPost, isLoading: false } : post));
+        setPosts(posts.map(post => post.slug === slug ? updatedPost : post));
         toast({
           title: "Success",
           description: `Post ${newStatus === 'published' ? 'published' : 'unpublished'} successfully`,
@@ -118,15 +116,13 @@ export default function ManagePostsPage() {
       }
     } catch (error) {
       console.error('Error updating post status:', error);
-      // Revert the optimistic update
-      setPosts(posts.map(post => 
-        post.slug === slug ? { ...post, status: currentStatus, isLoading: false } : post
-      ));
       toast({
         title: "Error",
         description: error instanceof Error ? error.message : "Failed to update post status. Please try again.",
         variant: "destructive",
       });
+    } finally {
+      setLoadingPostSlug(null);
     }
   };
 
@@ -212,9 +208,9 @@ export default function ManagePostsPage() {
                             id={`publish-${post.slug}`}
                             checked={post.status === 'published'}
                             onCheckedChange={() => handleTogglePublish(post.slug, post.status)}
-                            disabled={post.isLoading}
+                            disabled={isLoading}
                           />
-                          {post.isLoading && (
+                          {isLoading && post.slug === loadingPostSlug && (
                             <LoadingSpinner size="small" />
                           )}
                           <Label
@@ -268,4 +264,4 @@ export default function ManagePostsPage() {
   )
 }
 
-                                     
+          
